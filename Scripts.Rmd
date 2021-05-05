@@ -20,18 +20,18 @@ If we have a continuous response variable with normally distributed residuals, t
 
 $y_{ij} = x_{ij}^{\top}\beta + z_{ij}^{\top}b_i + \epsilon_{ij}$
 
-Note: We thus have a fixed-effects part ($x_{ij}^{\top}\beta$), a random-effects part ($z_{ij}^{\top}b_i$) and a residual error term ($\epsilon_{ij}$). 
+We thus have a fixed-effects part ($x_{ij}^{\top}\beta$), a random-effects part ($z_{ij}^{\top}b_i$) and a residual error term ($\epsilon_{ij}$). 
 
 The GLMM tree model differs in that the fixed-effect part may differ between subgroups:
 
 $y_{ij} = x_{ij}^{\top}\beta_{k} + z_{ij}^{\top}b_i + \epsilon_{ij}$
 
-Thus, $k$ is an identifier for the subgroup. The GLMM tree algorithm finds these subgroups $k$, using additional covariates $U$. These may be measured on the lowest level $i$ (which is commonly encountered in cross-sectional multilevel data), or on the higher level $j$ (which is commonly encountered in longitudinal data).
+Thus, $k$ is an identifier for the subgroup. The GLMM tree algorithm finds these subgroups $k$, using additional covariates. These may be measured on the lowest level $i$ (which is commonly encountered in cross-sectional multilevel data), or on the higher level $j$ (which is commonly encountered in longitudinal data).
 
-The subgroups $k$, and parameters $beta$ and $b$ cannot be estimated in a single step. An iterative approach is taken, where the model-base recursive partitioning algorithm of Zeileis, Hothorn & Hornk (2008) is used to estimate the subgroups $k$, and the usual (restricted) maximum likelihood approach is used to estimate the fixed- and random-effects parameters, see Fokkema et al. (2018).
+The subgroups $k$, and parameters $\beta$ and $b$ cannot be estimated in a single step. An iterative approach is taken, where the model-base recursive partitioning algorithm of Zeileis, Hothorn & Hornk (2008) is used to estimate the subgroups $k$, and the usual (restricted) maximum likelihood approach is used to estimate the fixed- and random-effects parameters, see Fokkema et al. (2018).
 
 \newpage
-# Example 1: Improving Access to Psychological Therapies data
+# Example: Treatment subgroups
 
 For this example, we will make use of artificial data modelled after the Stratified Medicine Approaches foR Treatment Selection (SMART) prediction tournament, from the Improving Access to Psychological Therapies (IAPT) project (Lucock et al., 2017). The SMART data contains data from patients receiving mental-health services in the Northern UK. Patients were (non-randomly) assigned to low intensity treatment (e.g., guided self-help, computerized cognitive behavior therapy) or high intensity treatment (e.g., face-to-face psychological therapies). The aim of the SMART tournament was to identify patients who would benefit most from HI vs. LI treatment. I do not own the data, so I generated an artificial dataset which mimics the original data, available in the file "SMART mimic data.txt".
 
@@ -39,34 +39,34 @@ For this example, we will make use of artificial data modelled after the Stratif
 library("glmertree")
 SMART <- read.table("SMART mimic data.txt", stringsAsFactors = TRUE)
 names(SMART)
-SMART_tree <- glmertree(recovered ~ Treatment | center | Age + PHQ9_pre + 
-                          GAD7_pre + WSAS_pre + Gender + Ethnicity + 
-                          Diagnosis + Employment + Disability + Medication,
-                        data = SMART, family = binomial)
+trt_tree <- glmertree(recovered ~ Treatment | center | Age + PHQ9_pre + 
+                      GAD7_pre + WSAS_pre + Gender + Ethnicity + 
+                      Diagnosis + Employment + Disability + Medication,
+                      data = SMART, family = binomial)
 ```
 
 We can print and plot the results as follows:
 
 ```{r, fig.width=4.5, fig.height=4, message = FALSE, warning = FALSE}
-SMART_tree$tree
-plot(SMART_tree, which = "tree", gp = gpar(cex = .6))
+trt_tree$tree
+plot(trt_tree, which = "tree", gp = gpar(cex = .6))
 ```
 
 ```{r, fig.width=3, fig.height=3, message = FALSE, warning = FALSE}
-plot(SMART_tree, which = "ranef")
+plot(trt_tree, which = "ranef")
 ```
 
 ```{r}
-VarCorr(SMART_tree)
+VarCorr(trt_tree)
 ```
 
 ```{r}
-fixef(SMART_tree)
+fixef(trt_tree)
 ```
 
 
 \newpage
-# Example 2: Alcohol data
+# Example: Alcohol trajectories
 
 Curran, Stice, and Chassin (1997) collected data on 82 adolescents at three time points starting at age 14 to assess factors that affect teen drinking behavior. Key variables in the data set "alcohol.csv" (accessed via Singer and Willett, 2003) are as follows:
 
@@ -85,14 +85,57 @@ alco <- read.table("alcohol.csv", header= TRUE, sep = ",",
 summary(alco)
 alco$age <- alco$age - 14L
 ```
+Fit and plot a fixed-effects linear model (note: I used only a subset of the data to keep plot readable) :
 
-Because the possible partitioning variables are measured on level II, we use the `cluster` argument to specify this to the algorithm (otherwise, the parameter stability tests will likely be overpowered):
+```{r, fig.width=4, fig.height=3}
+set.seed(42)
+ids <- sample(unique(alco$id), 10)
+cols <- colorspace::rainbow_hcl(length(ids))
+alc <- alco[alco$id %in% ids, ]
+LM <- lm(alcuse ~ age, data = alc)
+summary(LM)
+beta <- coef(LM)
+plot(jitter(alc$age, 0.5), jitter(alc$alcuse), col = cols, pch = 20,
+     xlab = "age - 14", ylab = "alcohol use")
+abline((beta[1]), beta[2], cex = 3)
+```
+Fit and plot linear model tree (note: here I used the full dataset):
+
+```{r}
+library("partykit")
+lt <- lmtree(alcuse ~ age | coa + male + peer, data = alco)
+plot(lt, gp = gpar(cex = 0.7))
+```
+
+Fit and plot linear mixed-effects model (again, I used only a subset of the original data):
+
+```{r, fig.width=4, fig.height=3}
+LMM <- lmer(alcuse ~ age + (age|id), data = alc)
+summary(LMM)
+beta <- fixef(LMM)
+b <- ranef(LMM)$id
+plot(jitter(alc$age, 0.5), jitter(alc$alcuse), col = cols, pch = 20,
+     xlab = "age - 14", ylab = "alcohol use")
+abline((beta[1]), beta[2], cex = 3)
+for (j in 1:length(ids)) {
+  abline((b+beta)[j,1], (b+beta)[j,2], col = cols[j])
+}
+```
+
+Fit and plot a linear mixed-effects model tree:
 
 ```{r}
 lt <- lmertree(alcuse ~ age | (age|id) | coa + male + peer, data = alco, 
                cluster = id)
+``` 
+
+Note that because the possible partitioning variables are measured on level II, we use the `cluster` argument to specify this to the algorithm (otherwise, the parameter stability tests will assume partitioning variables are measured at level I and the tests are likely overpowered).
+
+```{r, fig.width=5, fig.height=4}
 plot(lt, fitted = "marginal", gp = gpar(cex = 0.7))
 ``` 
+
+I specified `fitted = "marginal", so the lines in the terminal node represent the effect of time, while fixing all other predictors (fixed and random, but not the potential partitioning variables) at their means. 
 
 The plots of the random effects look quite messy, because of the large number of study participants. We can request the (co)variances of the random effects as follows:
 
@@ -101,12 +144,13 @@ fixef(lt)
 VarCorr(lt)
 ```
 
+
 \newpage
-# Example 3: Musical performances
+# Example: Stage fright trajectories
 
-Stage fright can be a serious problem for performers, and understanding the personality underpinnings of performance anxiety is an important step in determining how to minimize its impact. Sadler and Miller (2010) studied the emotional state of musicians before performances and factors which may affect their emotional state. Data was collected by having 37 undergraduate music majors from a competitive undergraduate music program fill out diaries prior to performances over the course of an academic year. In particular, study participants completed a Positive Affect Negative Affect Schedule (PANAS) before each performance. The PANAS instrument provided two key outcome measures: negative affect (a state measure of anxiety) and positive affect (a state measure of happiness). We will focus on negative affect as our primary response measuring performance anxiety.
+Sadler and Miller (2010) studied the emotional state of musicians before performances and factors which may affect their emotional state. Data was collected among 37 undergraduate music majors from a competitive undergraduate music program. They filled out diaries prior to performances over the course of an academic year. Specifically, participants completed a Positive Affect Negative Affect Schedule (PANAS) before each performance, providing two key outcomes: negative affect (`na`, a state measure of anxiety) and positive affect (`pa`, a state measure of happiness).
 
-Factors which were examined for their potential relationships with performance anxiety included: performance type (solo, large ensemble, or small ensemble); audience (instructor, public, students, or juried); if the piece was played from memory; age; gender; instrument (voice, orchestral, or keyboard); and, years studying the instrument. In addition, the personalities of study participants were assessed at baseline through the Multidimensional Personality Questionnaire (MPQ). The MPQ provided scores for one lower-order factor (absorption) and three higher-order factors: positive emotionality (PEM—a composite of well-being, social potency, achievement, and social closeness); negative emotionality (NEM—a composite of stress reaction, alienation, and aggression); and constraint (a composite of control, harm avoidance, and traditionalism).
+Factors which were examined for their potential relationships with performance anxiety included: performance type (solo, large ensemble, or small ensemble); audience (instructor, public, students, or juried); if the piece was played from memory; age; gender; instrument (voice, orchestral, or keyboard); and years studying the instrument. In addition, the personalities of study participants were assessed at baseline through the Multidimensional Personality Questionnaire (MPQ). The MPQ provided scores for one lower-order factor (absorption) and three higher-order factors: positive emotionality (PEM); negative emotionality (NEM); and constraint.
 
 Here, we look at trajectories of negative affect scores over the course of repeated assessments at solo performances.
 
@@ -115,6 +159,7 @@ music <- read.table("musicdata.csv", header=T, sep=",",
                     stringsAsFactors = TRUE)[ , -1]
 summary(music)
 music <- music[music$perform_type == "Solo", ]
+levels(music$instrument) <- c("keyboard", "orch_instr", "voice")
 ```
 
 * `id` = unique musician identification number
@@ -126,21 +171,28 @@ music <- music[music$perform_type == "Solo", ]
 * `mpqab` = absorption subscale from MPQ (level II)
 * `mpqpem` = positive emotionality (PEM) composite scale from MPQ (level II)
 * `mpqnem` = negative emotionality (NEM) composite scale from MPQ (level II)
+* `mpqcon` = constraint scale from MPQ (level II)
+
+Here, we fit both random intercepts and slopes of time (`diary`). These random intercepts and slopes are deviations from the subgroup-specific intercept and slope:
 
 ```{r, warning=FALSE, message=FALSE}
-levels(music$instrument) <- c("keyboard", "orch_instr", "voice")
-
-lmmt1 <- lmertree(na ~ diary | (1|id) | gender + instrument +
-                    mpqab + mpqpem + mpqnem, data = music, cluster = id)
+lmmt1 <- lmertree(na ~ diary | (diary|id) | gender + instrument +
+                    mpqab + mpqpem + mpqnem + mpqcon, data = music, cluster = id)
 plot(lmmt1, fitted = "marginal", which = "tree", gp = gpar(cex = .7))
 fixef(lmmt1, which = "tree")
-fixef(lmmt1, which = "global")
-
-lmmt2 <- lmertree(na ~ diary | audience + (1|id) | gender + instrument +
-                       mpqab + mpqpem + mpqnem, data = music, cluster = id)
-plot(lmmt2, fitted = "marginal", which = "tree", gp = gpar(cex = .7))
+VarCorr(lmmt1)
 ```
 
+We can also account for time-varying covariates. For example, the variable `audience` has a strong effet on negative affect, and should be accounted for. Time-varying predictors can either be included in the subgroup-specific model, which we would do if we expect and are interested in possible between-subgroup differences, but note that this makes the resulting subgroups more difficult to interpret, because they can differ in terms of several parameters. So it might be better to globally correct/account for the effect of `audience`:
+
+```{r, warning=FALSE, message=FALSE}
+lmmt2 <- lmertree(na ~ diary | audience + (diary|id) | gender + instrument +
+                       mpqab + mpqpem + mpqnem + mpqcon, data = music, cluster = id)
+plot(lmmt2, fitted = "marginal", which = "tree", gp = gpar(cex = .7))
+fixef(lmmt2, which = "tree")
+fixef(lmmt2, which = "global")
+VarCorr(lmmt2)
+```
 \newpage
 # Further reading
 
@@ -153,6 +205,64 @@ vignette("glmertree")
 Furthermore, Fokkema, Smits, Zeileis, Hothorn & Kelderman  (2018) provides an in-depth technical discussion of GLMM trees, while Fokkema, Edbrooke-Childs & Wolpert (2020) provides a less technical introduction.
 
 
+# From the future: GAM trees
+
+The GAM tree package allows for detecting subgroups in non-linear trajectories. However, it is still experimental. Instead of fitting GLMMs, it fit GAMs, which allows for fitting non-linear smoothing splines, as well as random effects. For an in-depth discussion of GAMs, see Wood (2017). Or Chapter 7 of James et al. (2013) for a less formal, more introductory version (you can download that book freely via https://www.statlearning.com/). 
+
+The use of GAM tree assumes some familiarity with **`R`** package **`mgcv`**. You can install the current development version as follows:
+
+```{r, eval=FALSE}
+library("devtools")
+install_github("marjoleinF/gamtree")
+```
+We now fit non-linear trajectories to the alcohol use data. To fit a smooth curve to a predictor, we use the `s()` function (type `?mgcv::gam` and `?mgcv::s` for more info). For fitting random effects, we use the same function, and specify that we `bs = "re"` to indicate we want to estimate a random-effect, not a non-linear curve:
+
+```{r, fig.width=4, fig.height=3, warning=FALSE, message=FALSE}
+library("gamtree")
+alco$id <- factor(alco$id)
+gt <- gamtree(alcuse ~ s(age, k = 3) | s(id, bs = "re") | coa + male + peer, 
+              data = alco, cluster = alco$id, verbose = FALSE)
+plot(gt, which = "tree", treeplot_ctrl = list(gp = gpar(cex = .7)))
+```
+
+```{r, fig.width=4.5, fig.height=3, warning=FALSE, message=FALSE}
+plot(gt, which = "nodes")
+```
+
+The fitted (marginal) curves in the tree indicate no or little non-linearity in either of the resulting subgroups (nodes). The groups seem to mostly differ in terms of the intercept and linear slope, not in terms of the shape of the effect of age. Note also the similarity to the GLMM tree we fitted earlier. Only the conditional effects plotted later indicate slight non-linearity in the node-3 subgroup.
+
+```{r}
+summary(gt)
+```
+
+We can also fit non-linear curves to the stage-fright data:
+
+```{r, fig.width=4, fig.height=3}
+music$id <- factor(music$id)
+gamt1 <- gamtree(na ~ s(diary) | audience + s(id, bs = "re") | gender + 
+                  instrument + mpqab + mpqpem + mpqnem + mpqcon, data = music, 
+                  verbose = FALSE, cluster = music$id)
+plot(gamt1, which = "tree", treeplot_ctrl = list(gp = gpar(cex = .7)))
+```
+
+```{r, fig.width=4.5, fig.height=3}
+plot(gamt1, which = "nodes")
+```
+
+```{r}
+summary(gamt1)
+```
+
+We see some evidence of non-linearity: Those with lower negative emotionality at baseline (node 3) show a decrease and then an increase over the academic year. Those with higher levels of negative emotionality at baseline (node 4) show a stronger, more steady decrease of negative affect during performance, over the course of the academic year.
+
+Note that the $p$-values should be taken with a (large) grain of salt, because they do not account for the searching of the subgroups.
+
+
+
+
+
+
+\newpage
 # References
 
 Curran, P. J., Stice, E., & Chassin, L. (1997). The relation between adolescent alcohol use and peer alcohol use: a longitudinal random coefficients model. *Journal of Consulting and Clinical Psychology, 65*(1), 130.
@@ -161,11 +271,16 @@ Fokkema, M., Smits, N., Zeileis, A., Hothorn, T., & Kelderman, H. (2018). Detect
 
 Fokkema, M., Edbrooke-Childs, J., & Wolpert, M. (2020). Generalized linear mixed-model (GLMM) trees: A flexible decision-tree method for multilevel and longitudinal data. *Psychotherapy Research,31*(3), 329-341. https://doi.org/10.1080/10503307.2020.1785037
 
+James, G., Witten, D., Hastie, T., & Tibshirani, R. (2013). Introduction to Statistical Learning. New York: springer.
+
 Lucock, M., Barkham, M., Donohoe, G., Kellett, S., McMillan, D., Mullaney, S., ... & Delgadillo, J. (2017). The role of Practice Research Networks (PRN) in the development and implementation of evidence: The Northern improving access to psychological therapies PRN case study. *Administration and Policy in Mental Health and Mental Health Services Research, 44*(6), 919-931.
 
 Sadler, M. E., & Miller, C. J. (2010). Performance anxiety: A longitudinal study of the roles of personality and experience in musicians. *Social Psychological and Personality Science, 1*(3), 280-287.
 
 Singer, J.D. & Willett, J.B. (2003). *Applied longitudinal data analysis: Modeling change and event occurrence.* Oxford University Press.
 
+Wood, S. N. (2017). Generalized additive models: an introduction with R. CRC press.
+
 Zeileis, A., Hothorn, T., & Hornik, K. (2008). Model-based recursive partitioning. *Journal of Computational and Graphical Statistics, 17*(2), 492-514. https://doi.org/10.1198/106186008X319331
+
 
